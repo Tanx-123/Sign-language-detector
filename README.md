@@ -19,3 +19,7 @@ $pip install tk
 
 ## Sample Video
 
+
+https://github.com/Tanx-123/Sign-language-detector/assets/75534311/a66155ce-d1d8-40a7-bf14-1577384785f4
+
+
