@@ -17,7 +17,5 @@ Tkinter
 $pip install tk
 ```
 
-##Sample Video
+## Sample Video
 
-
-https://github.com/Tanx-123/Sign-language-detector/blob/main/sample.mp4
