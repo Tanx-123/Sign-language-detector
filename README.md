@@ -3,8 +3,12 @@ This Python project focuses on American Sign Language (ASL) detection using comp
 
 ## Install
 Ensure you have the following libraries installed:
+```Open-cv
+$pip install opencv-python
 ```
-Open-cv: $pip install opencv-python
-Mediapie: $pip install mediapipe
-Tkinter: $pip install tk
+```Mediapie
+$pip install mediapipe
+```
+```Tkinter
+$pip install tk
 ```
