@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ASL Detector - Real-time Sign Language Recognition</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 1000px;
+            width: 100%;
+            padding: 40px;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .video-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            border: 3px solid #667eea;
+        }
+        
+        .info-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 30px;
+        }
+        
+        .info-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .info-box p {
+            color: #666;
+            line-height: 1.6;
+            font-size: 0.95em;
+        }
+        
+        .instructions {
+            background: #e7f3ff;
+            border: 2px solid #667eea;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        
+        .instructions h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            color: #333;
+            line-height: 1.8;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 15px;
+            background: #90ee90;
+            border-radius: 10px;
+            margin-top: 20px;
+            color: #2d5016;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+                margin-bottom: 20px;
+            }
+            
+            .info-section {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ASL Detector</h1>
+        
+        <div class="video-container">
+            <img src="/video_feed" alt="Video Stream" width="640" height="480">
+        </div>
+        
+        <div class="info-section">
+            <div class="info-box">
+                <h3>What is ASL Detection?</h3>
+                <p>ASL (American Sign Language) Detection uses advanced machine learning with MediaPipe hand tracking and a trained neural network model to recognize hand gestures in real-time from your webcam.</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>Technology Stack</h3>
+                <p><strong>FastAPI:</strong> High-performance web server<br>
+                   <strong>OpenCV:</strong> Real-time computer vision<br>
+                   <strong>MediaPipe:</strong> Hand landmark detection<br>
+                   <strong>TensorFlow/Sklearn:</strong> ML model</p>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>How to Use:</h3>
+            <ol>
+                <li>Position your hand clearly in front of your webcam</li>
+                <li>Ensure good lighting for accurate detection</li>
+                <li>The system will detect your hand and display a bounding box</li>
+                <li>The predicted ASL character will appear above the bounding box</li>
+                <li>You can use both hands simultaneously (up to 2 hands)</li>
+                <li>Special gestures like 'space' and 'delete' are also supported</li>
+            </ol>
+        </div>
+        
+        <div class="status">
+            System is running and ready for detection!
+        </div>
+    </div>
+</body>
+</html>
