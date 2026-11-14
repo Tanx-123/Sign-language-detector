@@ -1,64 +1,95 @@
 # ASL Detector - Real-time American Sign Language Recognition
 
-A real-time American Sign Language (ASL) recognition application that uses computer vision and machine learning to detect and classify 29 ASL characters (A-Z, space, delete, nothing) from webcam input. The application features a FastAPI backend with live MJPEG video streaming and a web-based interface.
+A real-time American Sign Language (ASL) recognition application that uses computer vision and machine learning to detect and classify 28 ASL characters (A–Z, space, del) from live webcam input. The application uses MediaPipe Hands for robust hand landmark tracking, extracts normalized geometric features, and classifies gestures using a trained Random Forest classifier with native real-time OpenCV display.
 
 ## Key Features
 
-- **Real-time ASL Detection**: Recognizes 29 American Sign Language characters with high accuracy
-- **Multi-hand Support**: Detects and classifies up to 2 hands simultaneously
-- **Web-Based Interface**: FastAPI backend with live MJPEG video streaming accessible via any modern browser
-- **MediaPipe Integration**: Uses MediaPipe for robust hand landmark detection
-- **Random Forest Classifier**: Trained ML model for accurate sign recognition
-- **Thread-Safe Processing**: Background thread architecture for smooth performance
-- **Easy Deployment**: Simple HTTP endpoints for video streaming and predictions
+- **Real-time ASL Detection**: Accurately recognizes 28 American Sign Language characters (A–Z, space, del).
+- **Multi-hand Support**: Detects and classifies up to 2 hands simultaneously.
+- **MediaPipe Landmark Tracking**: Leverages 21 3D hand landmarks per hand for precise, jitter-free joint tracking.
+- **Position-Invariant Feature Extraction**: Normalizes landmark coordinates relative to bounding box minimums (42 features per hand) so signs are recognized anywhere in the camera view.
+- **Random Forest Classifier**: High-performance, lightweight ensemble classifier (~98.3% test accuracy) enabling low-latency real-time inference without needing a GPU.
+- **Native OpenCV UI**: Direct low-latency camera capture and interactive display window.
+
+## Prerequisites
+
+- **Python**: Python 3.10 or 3.11 is recommended (MediaPipe `0.10.x` solutions support Python up to 3.11).
+- **Webcam**: A built-in or USB webcam.
 
 ## Installation
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/Tanx-123/Sign-language-detector.git
-    cd Sign-language-detector
-    ```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/Tanx-123/Sign-language-detector.git
+   cd Sign-language-detector
+   ```
 
-2.  **Create and activate a virtual environment (recommended):**
-    ```bash
-    python -m venv venv
-    # On Windows
-    .\venv\Scripts\activate
-    # On macOS/Linux
-    source venv/bin/activate
-    ```
+2. **Create and activate a virtual environment:**
+   Using standard `venv` (Python 3.10/3.11):
+   ```bash
+   python -m venv .venv
+   # Windows (Command Prompt / PowerShell)
+   .\.venv\Scripts\activate
+   # macOS / Linux
+   source .venv/bin/activate
+   ```
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+   *Alternatively, using `uv`:*
+   ```bash
+   uv venv .venv --python 3.11
+   .\.venv\Scripts\activate
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## Usage
 
-1. **Start the application:**
+1. **Run the detector:**
    ```bash
    python app.py
    ```
-   The FastAPI server will start and listen on `http://localhost:8000`
 
-2. **Open the web interface:**
-   - Open your browser and navigate to `http://localhost:8000`
-   - The application will display a live video feed from your webcam with real-time ASL detection
+2. **How to interact:**
+   - Position your hand(s) in front of the webcam.
+   - The green skeleton landmarks, bounding box, and predicted ASL character will overlay in real-time.
+   - Press **`q`** on your keyboard while focused on the OpenCV window to exit.
 
-3. **How to Use:**
-   - Position your hand(s) within the camera frame
-   - The application will detect hand landmarks using MediaPipe
-   - Detected ASL signs will be displayed with bounding boxes and labels
-   - Your predictions appear in real-time as you perform different signs
+## Project Structure
 
-## API Endpoints
+```text
+Sign-language-detector/
+├── app.py                 # Real-time detection & OpenCV inference script
+├── model.ipynb            # Dataset processing, feature extraction, and model training pipeline
+├── model.pickle           # Serialized Random Forest classifier
+├── label_encoder.pickle   # Serialized LabelEncoder mapping integer predictions to letters
+├── requirements.txt       # Project dependencies
+├── DOCUMENTATION.md       # Detailed technical documentation & pipeline overview
+└── README.md              # Project overview & quickstart guide
+```
 
-The application provides the following REST endpoints:
+## How It Works
 
-- `GET /` - Serves the main HTML interface
-- `GET /video_feed` - Streams live MJPEG video with hand detection annotations
-- `GET /latest_predictions` - Returns the latest detected hand gestures as JSON
+```
+ Webcam Frame (640x480 BGR)
+         │
+         ▼
+ Horizontal Flip (Selfie Mirror) & BGR ➔ RGB
+         │
+         ▼
+ MediaPipe Hands (21 Landmarks per hand)
+         │
+         ▼
+ Feature Normalization (Δx_i = x_i - min_x, Δy_i = y_i - min_y ➔ 42 features)
+         │
+         ▼
+ Random Forest Model (.predict())
+         │
+         ▼
+ Label Decoding (e.g., 0 ➔ 'A') & OpenCV Rendering (Bounding Box + Text)
+```
 
 ## Sample Video
 
@@ -66,6 +97,4 @@ https://github.com/Tanx-123/Sign-language-detector/assets/75534311/a66155ce-d1d8
 
 ## Documentation
 
-For detailed information about the project architecture, model training, dataset structure, and technical implementation, see [DOCUMENTATION.md](DOCUMENTATION.md).
-
-
+For a comprehensive technical breakdown including model training, architecture diagrams, and detailed viva Q&A, refer to [DOCUMENTATION.md](DOCUMENTATION.md).
