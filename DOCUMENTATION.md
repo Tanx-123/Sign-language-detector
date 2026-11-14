@@ -4,39 +4,38 @@
 
 1. [Project Overview](#project-overview)
 2. [System Architecture](#system-architecture)
-3. [Installation Guide](#installation-guide)
+3. [Installation & Setup](#installation--setup)
 4. [Project Structure](#project-structure)
 5. [Dataset Information](#dataset-information)
-6. [Model Training Pipeline](#model-training-pipeline)
-7. [Application Components](#application-components)
-8. [Code Documentation](#code-documentation)
+6. [Model Training Pipeline (`model.ipynb`)](#model-training-pipeline-modelipynb)
+7. [Real-Time Inference (`app.py`)](#real-time-inference-apppy)
+8. [Hand Landmark & Feature Extraction Details](#hand-landmark--feature-extraction-details)
 9. [Usage Guide](#usage-guide)
-10. [Technical Details](#technical-details)
-11. [Dependencies](#dependencies)
-12. [Performance Metrics](#performance-metrics)
+10. [Technical Specifications & Performance](#technical-specifications--performance)
+11. [Dependencies & Compatibility](#dependencies--compatibility)
+12. [Troubleshooting](#troubleshooting)
+
+---
 
 ## Project Overview
 
 ### What is ASL Detector?
 
-**ASL Detector** is a real-time American Sign Language (ASL) recognition application that uses computer vision and machine learning to detect and classify ASL hand gestures from a webcam feed. The application combines MediaPipe's hand detection capabilities with a trained Random Forest classifier to provide accurate and responsive sign language interpretation via a FastAPI web interface.
+**ASL Detector** is a real-time American Sign Language (ASL) recognition application that uses computer vision and machine learning to detect and classify ASL hand gestures directly from live webcam video. The application utilizes **MediaPipe Hands** (`mp.solutions.hands`) for robust 21-point hand landmark tracking and a trained **Random Forest Classifier** (`scikit-learn`) to recognize 28 ASL classes with low latency and native OpenCV rendering.
 
 ### Key Features
 
-- **Real-time ASL Detection**: Recognizes 29 American Sign Language characters (A-Z, space, del, nothing)
-- **Multi-hand Support**: Detects and classifies up to 2 hands simultaneously
-- **Web-Based Interface**: FastAPI backend with live MJPEG video streaming
-- **High Accuracy**: Achieves 85-95% accuracy with good generalization
-- **Thread-Safe Processing**: Background thread architecture prevents frame corruption
-- **Easy to Deploy**: Simple HTTP endpoints for video streaming
-- **Browser Compatible**: Works on any modern web browser
+- **Real-time ASL Detection**: Recognizes **28 ASL classes** (Letters `A` through `Z`, plus `space` and `del`).
+- **Multi-hand Support**: Detects and classifies up to **2 hands** simultaneously.
+- **Position-Invariant Landmark Normalization**: Computes coordinates relative to each hand's bounding box minimums ($\Delta x_i = x_i - \min(x)$, $\Delta y_i = y_i - \min(y)$) to yield a 42-dimensional feature vector.
+- **High Accuracy & Efficiency**: Delivers **~98.3% test accuracy** while running smoothly at 30+ FPS on CPU without requiring GPU acceleration.
+- **Native OpenCV Display**: Direct window rendering (`cv2.imshow`) with bounding boxes, real-time landmark overlays, and prediction labels.
 
 ### Target Use Cases
 
-- Educational applications for learning ASL
-- Accessibility tools for sign language communication
-- Real-time translation assistance
-- Research in computer vision and gesture recognition
+- Learning and practicing American Sign Language alphabet gestures.
+- Human-Computer Interaction (HCI) accessibility tools.
+- Real-time gesture recognition prototyping and research.
 
 ---
 
@@ -45,679 +44,345 @@
 ### High-Level Architecture Flow
 
 ```
-Webcam Input
-    ↓
-Video Capture (OpenCV)
-    ↓
-Frame Preprocessing (RGB Conversion)
-    ↓
-Hand Landmark Detection (MediaPipe)
-    ↓
-Feature Extraction (Hand Coordinates)
-    ↓
-Prediction (Random Forest Classifier)
-    ↓
-Frame Annotation (Bounding Box & Label)
-    ↓
-MJPEG Stream for Browser Display
-    ↓
-User Output (Live Video with Predictions)
+Webcam Video Capture (cv2.VideoCapture)
+    │
+    ▼
+Frame Preprocessing (Horizontal Mirror Flip + BGR ➔ RGB)
+    │
+    ▼
+Hand Landmark Estimation (MediaPipe Hands: mp.solutions.hands)
+    │
+    ▼
+Feature Extraction (21 Landmarks ➔ 42 Normalized Floats)
+    │
+    ▼
+Gesture Classification (RandomForestClassifier .predict())
+    │
+    ▼
+Label Decoding (LabelEncoder inverse_transform())
+    │
+    ▼
+Frame Annotation (OpenCV Bounding Box, Skeleton, & Class Text)
+    │
+    ▼
+Native UI Display (cv2.imshow with 'q' to exit)
 ```
 
 ### Component Interaction Diagram
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Web Browser                          │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │         HTML/CSS/JavaScript Frontend             │   │
-│  │  - Displays live MJPEG video stream              │   │
-│  │  - Shows hand detection annotations              │   │
-│  │  - Responsive UI with instructions               │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│           FastAPI Backend Web Server                    │
-│  ├─ GET / → Serves index.html                           │
-│  ├─ GET /video_feed → Streams MJPEG video               │
-│  └─ GET /latest_predictions → JSON predictions          │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│      Background Processing Thread                       │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │ 1. Capture frame from webcam (30 FPS)            │   │
-│  │ 2. Flip horizontally for natural interaction     │   │
-│  │ 3. Detect hand landmarks (MediaPipe)             │   │
-│  │ 4. Extract 42 hand features (21 joints × 2)      │   │
-│  │ 5. Run ML model prediction                       │   │
-│  │ 6. Draw bounding boxes & gesture labels          │   │
-│  │ 7. Store frame safely with thread lock           │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│              MJPEG Stream Generator                      │
-│  ├─ Read latest frame from shared buffer                │
-│  ├─ Compress to JPEG (quality 80)                       │
-│  └─ Yield as MJPEG chunk                                │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│              Webcam & ML Models                         │
-│  ├─ Webcam (640×480 @ 30 FPS)                           │
-│  ├─ MediaPipe Hands (hand detection)                    │
-│  ├─ Random Forest Classifier (gesture classification)   │
-│  └─ Label Encoder (character mapping)                   │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          Hardware                               │
+│  Webcam (Default Index 0, 640×480 @ 30 FPS)                     │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │ Frame Buffer
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      app.py (Main Loop)                         │
+│  ├─ cv2.flip(frame, 1)                     [Natural mirror]     │
+│  ├─ cv2.cvtColor(frame, COLOR_BGR2RGB)     [Color conversion]   │
+│  ├─ mp_hands.Hands.process(frame_rgb)      [Landmark detection] │
+│  ├─ extract_and_normalize_landmarks()       [42D vector]        │
+│  ├─ model.predict([data_aux])              [RF classification]  │
+│  ├─ label_encoder.inverse_transform()      [Decoded character]  │
+│  └─ cv2.imshow("ASL Detector", frame)      [OpenCV display]     │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │ Loads at Startup
+                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Trained Model Artifacts                     │
+│  ├─ model.pickle         (RandomForestClassifier, 100 trees)    │
+│  └─ label_encoder.pickle (LabelEncoder: 28 discrete classes)    │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-### Design Philosophy
-
-**Thread-Safe Single Consumer Pattern:**
-- ONE background thread captures and processes frames continuously
-- MJPEG stream reads the latest processed frame from a shared buffer
-- Thread lock (`frame_lock`) prevents race conditions
-- Prevents MediaPipe timestamp conflicts
-- Eliminates concurrent access issues
 
 ---
 
-## Installation Guide
+## Installation & Setup
 
 ### Prerequisites
 
-- **Python**: Version 3.8 or higher
-- **Webcam**: Required for real-time hand detection
-- **Operating System**: Windows, macOS, or Linux
-- **Hardware**: Minimum 4GB RAM recommended for smooth operation
+- **Python**: Version **3.10** or **3.11** is recommended. *(Note: MediaPipe `0.10.x` solutions support Python up to 3.11. Python 3.12+ / 3.13 deprecates `mp.solutions.hands`).*
+- **Camera**: Standard built-in or USB webcam.
+- **Operating System**: Windows, Linux, or macOS.
 
 ### Step-by-Step Installation
 
-#### 1. Clone or Download the Repository
+#### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/Sign_detector.git
-cd Sign_detector
+git clone https://github.com/Tanx-123/Sign-language-detector.git
+cd Sign-language-detector
 ```
 
-#### 2. Create Virtual Environment (Recommended)
+#### 2. Create and Activate a Virtual Environment
 
-**On Windows:**
+**Using Python 3.11 (`venv`):**
 ```bash
-python -m venv env
-.\env\Scripts\activate
+# Windows
+python -m venv .venv
+.\.venv\Scripts\activate
+
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-**On macOS/Linux:**
+**Using `uv` (Fast installer):**
 ```bash
-python3 -m venv env
-source env/bin/activate
+uv venv .venv --python 3.11
+.\.venv\Scripts\activate
 ```
 
-#### 3. Install Dependencies
+#### 3. Install Required Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 4. Verify Installation
-
+Verify that the packages are correctly installed:
 ```bash
-pip list
+python -c "import mediapipe as mp, cv2, sklearn; print('MediaPipe:', mp.__version__, '| Has solutions?', hasattr(mp, 'solutions'))"
 ```
+*(Should output `Has solutions? True` with MediaPipe `0.10.14`).*
 
-You should see all required packages installed.
-
-#### 5. Prepare Model Files
-
-Ensure these files exist in the project root:
-- `model.pickle` - Trained Random Forest model
-- `label_encoder.pickle` - Label encoder for character mapping
-
-If missing, run the training notebook:
-```bash
-jupyter notebook model.ipynb
-```
-
-#### 6. Run the Application
+#### 4. Run the Real-Time Application
 
 ```bash
 python app.py
 ```
 
-Open your browser to `http://localhost:8000`
+Press **`q`** on the keyboard while focused on the OpenCV window to cleanly close the application.
 
 ---
 
 ## Project Structure
 
-### Directory Layout
-
 ```
-Sign_detector/
-├── app.py                          # Main FastAPI application
-├── index.html                      # Frontend webpage
-├── model.ipynb                     # Model training notebook
-├── requirements.txt                # Python dependencies
-├── README.md                       # Quick start guide
-├── DOCUMENTATION.md                # This comprehensive documentation
-├── model.pickle                    # Trained Random Forest model (generated)
-├── label_encoder.pickle            # Label encoder (generated)
-│
-├── asl_alphabet_train/             # Training dataset
-│   ├── A/ through Z/               # ASL letter images (A-Z)
-│   ├── space/                      # Space character images
-│   ├── del/                        # Delete character images
-│   └── nothing/                    # No gesture images
-│
-└── env/                            # Virtual environment
-    ├── Lib/                        # Python packages
-    ├── Scripts/                    # Python executables
-    └── Include/                    # Header files
+Sign-language-detector/
+├── app.py                 # Real-time detection & inference with native OpenCV UI
+├── model.ipynb            # Jupyter notebook for feature extraction and model training
+├── model.pickle           # Trained Random Forest classifier (~87 MB)
+├── label_encoder.pickle   # LabelEncoder mapping integers to character labels
+├── requirements.txt       # Pinned library dependencies
+├── .gitignore             # Git ignore configuration (virtual envs, pycache, data)
+├── README.md              # Project overview and quickstart guide
+└── DOCUMENTATION.md       # Comprehensive technical and pipeline documentation
 ```
 
-### File Descriptions
+### File Responsibilities
 
-| File | Purpose |
-|------|---------|
-| `app.py` | Main FastAPI application with video streaming and hand detection |
-| `index.html` | HTML/CSS/JavaScript frontend for web browser display |
-| `model.ipynb` | Jupyter notebook for model training and evaluation |
-| `requirements.txt` | List of all Python dependencies |
-| `model.pickle` | Serialized trained Random Forest classifier |
-| `label_encoder.pickle` | Serialized LabelEncoder for character mapping |
-| `asl_alphabet_train/` | Dataset containing training images by character |
+| File | Type | Description |
+|---|---|---|
+| `app.py` | Python Script | Captures webcam feed, runs landmark detection via MediaPipe, extracts 42 normalized features, classifies gestures, and displays annotations. |
+| `model.ipynb` | Jupyter Notebook | Reads training images, performs horizontal flip data augmentation, runs MediaPipe feature extraction, trains Random Forest, and serializes the model. |
+| `model.pickle` | Serialized Model | Contains `{'model': RandomForestClassifier}` trained on 42-dimensional landmark coordinate vectors. |
+| `label_encoder.pickle` | Serialized Encoder | Maps discrete predictions (`0` to `27`) to ASL labels (`'A'` through `'Z'`, `'del'`, `'space'`). |
+| `requirements.txt` | Configuration | Pinned library versions for reproducible environments. |
 
 ---
 
 ## Dataset Information
 
-### Dataset Overview
+### Overview
 
-The `asl_alphabet_train` directory contains training data for 29 ASL characters:
-- **26 Alphabet Letters**: A through Z
-- **3 Special Characters**: Space, Delete (del), Nothing
+The model is trained on the **ASL Alphabet Dataset**:
+- **Source**: [Kaggle ASL Alphabet Dataset](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
+- **Image Resolution**: 200×200 pixels (RGB/BGR).
+- **Target Classes (28 Classes)**:
+  - Alphabet: `A`, `B`, `C`, `D`, `E`, `F`, `G`, `H`, `I`, `J`, `K`, `L`, `M`, `N`, `O`, `P`, `Q`, `R`, `S`, `T`, `U`, `V`, `W`, `X`, `Y`, `Z`
+  - Control Gestures: `del`, `space`
 
-### Dataset Source and Attribution
+### Dataset Sampling & Augmentation
 
-This project utilizes the **ASL Alphabet dataset** from Kaggle:
-- **Dataset**: [ASL Alphabet](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
-- **Creator**: [Akash Nagaraj](https://www.kaggle.com/grassknoted)
-- **License**: GPL 2
-- **Size**: 87,000 training images, 29 test images
-- **Image Dimensions**: 200x200 pixels
-
-**Citation**:
-```bibtex
-@misc{nagaraj_2018,
-  title={ASL Alphabet},
-  url={https://www.kaggle.com/datasets/grassknoted/asl-alphabet},
-  DOI={10.34740/KAGGLE/DSV/29550},
-  author={Nagaraj, Akash},
-  year={2018}
-}
-```
-
-### Dataset Characteristics
-
-- **Format**: JPG images
-- **Organization**: Each character has its own subdirectory
-- **Images per Category**: Up to 1,000 images per character (randomly sampled)
-- **Total Training Samples**: ~25,000 after augmentation
-- **Augmentation**: Each image is horizontally flipped, doubling the dataset
-
-
-## Model Training Pipeline
-
-The model training process is implemented in `model.ipynb` with the following stages:
-
-1. **Data Loading**: Load images from `asl_alphabet_train/`, extract hand landmarks using MediaPipe
-2. **Feature Extraction**: Normalize coordinates relative to hand bounds, create 42-dimensional vectors (21 landmarks × 2 coordinates)
-3. **Label Encoding**: Convert character labels to numeric format (A→0, B→1, etc.)
-4. **Train-Test Split**: Split data 80/20 with stratification to maintain class distribution
-5. **Model Training**: Train RandomForestClassifier on normalized features
-6. **Serialization**: Save model and encoder to `model.pickle` and `label_encoder.pickle`
-
-**Why Random Forest?**
-- Handles non-linear relationships in hand landmark data
-- Robust to noise and outliers
-- Fast inference time suitable for real-time applications
-- Achieves 85-95% accuracy on test data
+In `model.ipynb`:
+1. **Sampling**: Up to 1,000 images per class are sampled randomly to maintain balanced class representation across all 28 classes.
+2. **Horizontal Flipping**: Each training image is processed in its original orientation and then horizontally flipped (`cv2.flip(img, 1)`).
+3. **Robustness**: This mirrors hands left-to-right, effectively doubling the dataset and ensuring the model generalizes seamlessly to both left- and right-handed signers.
 
 ---
 
-## Application Components
+## Model Training Pipeline (`model.ipynb`)
 
-### FastAPI Application (`app.py`)
+The model training pipeline consists of 5 modular stages:
 
-#### Configuration Constants (Lines 10-25)
+### Stage 1: MediaPipe Hands Initialization
 ```python
-CAMERA_INDEX = 0
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
-TARGET_FPS = 30
-DETECTION_CONFIDENCE = 0.3
-JPEG_QUALITY = 80
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3)
+```
+- `static_image_mode=True` forces MediaPipe to treat each training image as an independent detection target rather than relying on temporal tracking.
+
+### Stage 2: Feature Extraction (`process_image`)
+For each image:
+1. MediaPipe detects up to 21 landmarks.
+2. The coordinate minimums `min(x_)` and `min(y_)` across all 21 points are calculated.
+3. Every landmark is normalized relative to the minimum:
+   $$\Delta x_i = x_i - \min(x)$$
+   $$\Delta y_i = y_i - \min(y)$$
+4. A 42-dimensional feature vector is created: `[Δx_0, Δy_0, Δx_1, Δy_1, ..., Δx_20, Δy_20]`.
+
+### Stage 3: Label Encoding
+```python
+label_encoder = LabelEncoder()
+labels = label_encoder.fit_transform(labels)
+joblib.dump(label_encoder, 'label_encoder.pickle')
+```
+Converts string categories (`'A'`, `'B'`, ...) into continuous integers (`0`, `1`, ...).
+
+### Stage 4: Stratified Train-Test Split & Training
+```python
+x_train, x_test, y_train, y_test = train_test_split(
+    data, labels, test_size=0.2, shuffle=True, stratify=labels
+)
+
+model = RandomForestClassifier(n_estimators=100)
+model.fit(x_train, y_train)
+```
+- **Stratification**: Guarantees identical class proportions in both training (80%) and testing (20%) sets.
+- **Random Forest**: Constructs an ensemble of 100 decision trees with bootstrap aggregation (bagging) and random feature selection.
+
+### Stage 5: Evaluation & Serialization
+```python
+y_predict = model.predict(x_test)
+score = accuracy_score(y_predict, y_test)
+# Achieves ~98.3% accuracy
+
+with open('model.pickle', 'wb') as f:
+    pickle.dump({'model': model}, f)
 ```
 
-#### Lifespan Context Manager (Lines 28-42)
-Replaces deprecated `@app.on_event` with modern async context manager pattern:
-- **Startup**: Initializes camera, loads model and label encoder
-- **Shutdown**: Releases camera, stops background thread and stream
+---
 
-#### Core Functions
+## Real-Time Inference (`app.py`)
 
-**`initialize_camera()`**
-- Sets up OpenCV VideoCapture and MediaPipe hand detector
-- Configures frame resolution and detection confidence
+### Execution Pipeline
 
-**`extract_and_normalize_landmarks(h, w, results)`**
-- Extracts 21 hand landmarks from MediaPipe results
-- Normalizes coordinates relative to hand bounds
-- Returns 42-dimensional feature vector
+```python
+def main():
+    # 1. Load model and label encoder
+    with open('model.pickle', 'rb') as f:
+        model = pickle.load(f)['model']
+    label_encoder = joblib.load('label_encoder.pickle')
 
-**`predict_gesture(landmarks)`**
-- Runs Random Forest prediction on feature vector
-- Returns character label or "?"
+    # 2. Initialize MediaPipe in video streaming mode
+    hands = mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=2,
+        min_detection_confidence=0.3,
+        min_tracking_confidence=0.3
+    )
 
-**`draw_hand_annotation(frame, hand_label)`**
-- Draws green bounding box around detected hand
-- Overlays predicted gesture label
+    # 3. Open webcam stream
+    cap = cv2.VideoCapture(0)
+    ...
+```
 
-**`detect_hand_gesture(frame)`**
-- Main pipeline: detects hand → extracts landmarks → predicts gesture → annotates frame
-- Returns annotated frame and prediction
+### Key Differences in Real-Time Inference
 
-**`capture_frames()`**
-- Background thread running at 30 FPS
-- Updates global `latest_processed_frame` and `latest_detected_gestures`
-- Uses `threading.Lock()` for thread-safe operations
+1. **`static_image_mode=False`**:
+   - In video mode, MediaPipe applies the palm detector only on the first frame or when tracking fails.
+   - For consecutive frames, it uses a fast landmark tracking model, reducing latency to ~10–15ms per frame.
+2. **Horizontal Mirroring (`cv2.flip(frame, 1)`)**:
+   - Provides a natural selfie mirror experience for the user.
+3. **Bounding Box Calculation**:
+   - Converts normalized landmark extremes into frame pixel coordinates:
+     $$x_1 = \max(0, \lfloor\min(x) \times W\rfloor - 10)$$
+     $$y_1 = \max(0, \lfloor\min(y) \times H\rfloor - 10)$$
+     $$x_2 = \min(W, \lceil\max(x) \times W\rceil + 10)$$
+     $$y_2 = \min(H, \lceil\max(y) \times H\rceil + 10)$$
+4. **Interactive Exit**:
+   - Checks `cv2.waitKey(1) & 0xFF == ord('q')` to cleanly release the webcam and destroy all OpenCV windows.
 
-**`generate_frames()`**
-- Generator for MJPEG streaming
-- Yields JPEG-compressed frames with boundary markers
-- Handles encoding errors gracefully
+---
 
-### API Endpoints
+## Hand Landmark & Feature Extraction Details
 
-#### GET `/`
-- Serves `index.html` - responsive web interface
-- Displays live video stream and detected gestures
+### 21 Hand Landmarks Map
 
-#### GET `/video_feed`
-- Returns MJPEG video stream on port 8000
-- Browser receives continuous video frames
+```
+          8 (INDEX_TIP)    12 (MIDDLE_TIP)   16 (RING_TIP)    20 (PINKY_TIP)
+          │                     │                  │                │
+          7 (INDEX_DIP)    11 (MIDDLE_DIP)   15 (RING_DIP)    19 (PINKY_DIP)
+          │                     │                  │                │
+          6 (INDEX_PIP)    10 (MIDDLE_PIP)   14 (RING_PIP)    18 (PINKY_PIP)
+4 (THUMB_TIP)  │                │                  │                │
+      │   5 (INDEX_MCP)     9 (MIDDLE_MCP)   13 (RING_MCP)    17 (PINKY_MCP)
+3 (THUMB_IP)   │                │                  │                │
+      │        └────────────────┴──────────────────┴────────────────┘
+2 (THUMB_MCP)                           │
+      │                                 │
+1 (THUMB_CMC)                           │
+      │                                 │
+      └─────────────────────────────────0 (WRIST)
+```
 
-#### GET `/latest_predictions`
-- Returns latest detected gesture as JSON
-- Format: `{"gesture": "A"}` or `{"gesture": "?"}`
+### Feature Normalization Math
+
+Given 21 landmarks detected for a single hand:
+$$\{(x_i, y_i)\}_{i=0}^{20}$$
+
+1. Compute coordinate minimums:
+   $$x_{\min} = \min_{0 \le i \le 20}(x_i), \quad y_{\min} = \min_{0 \le i \le 20}(y_i)$$
+2. Form the 42-dimensional vector:
+   $$\mathbf{v} = [x_0 - x_{\min}, \, y_0 - y_{\min}, \, x_1 - x_{\min}, \, y_1 - y_{\min}, \, \dots, \, x_{20} - x_{\min}, \, y_{20} - y_{\min}]$$
+
+**Why this is effective:**
+- **Translation Invariance**: The hand can be anywhere in the webcam's field of view without changing the feature vector.
+- **Dimensional Simplicity**: 42 continuous floating-point features can be evaluated by a Random Forest in less than 2 milliseconds.
 
 ---
 
 ## Usage Guide
 
-### Running the Application
-
-#### Step 1: Activate Virtual Environment
-
-**Windows**:
-```bash
-.\env\Scripts\activate
-```
-
-**macOS/Linux**:
-```bash
-source env/bin/activate
-```
-
-#### Step 2: Start the Server
-
-```bash
-python app.py
-```
-
-#### Step 3: Open in Browser
-
-Navigate to: `http://localhost:8000`
-
-#### Step 4: Make ASL Gestures
-
-1. Position your hand clearly in front of the webcam
-2. Form the ASL sign for a character
-3. The predicted character appears above your hand
-4. Use both hands simultaneously (up to 2 hands)
-5. Special gestures: 'space', 'del', 'nothing'
-
-#### Step 5: Stop the Server
-
-Press `Ctrl+C` in the terminal
-
-### Real-Time Inference Workflow
-
-```
-Webcam → Frame Capture → Hand Detection → Landmark Extraction
-    ↓
-Feature Normalization → Model Prediction → Character Decode
-    ↓
-MJPEG Stream Encoding → Browser Display → Continuous Update
-    ↓
-[Repeat at 30 FPS]
-```
-
-### Tips for Best Performance
-
-1. **Lighting**: Ensure adequate lighting for hand detection
-2. **Distance**: Position hand 30-60cm from camera
-3. **Clearance**: Keep hand clearly visible without obstruction
-4. **Background**: Use contrasting background
-5. **Angle**: Face camera with palm visible
-6. **Stability**: Hold pose briefly for accurate detection
-7. **Clean Hands**: Avoid dirt/shadows on hands for better detection
-8. **Single Character**: Complete one gesture before moving to next
-
-### Expected Results
-
-- **Single Hand**: 85-95% accuracy
-- **Two Hands**: 80-90% accuracy per hand
-- **Various Angles**: Good generalization across orientations
-- **Different Individuals**: Works across different hand sizes/shapes
-- **Real-time**: ~33 FPS processing speed
+1. **Camera Position**: Sit approximately 0.5 to 1 meter away from the webcam with your hand comfortably in view.
+2. **Lighting**: Ensure even lighting on the palm and fingers. Harsh backlighting or deep shadows can impair landmark tracking.
+3. **Multiple Hands**: Up to 2 hands are processed simultaneously in the same frame.
+4. **Termination**: Press the **`q`** key while focused on the video window to quit.
 
 ---
 
-## Code Documentation
+## Technical Specifications & Performance
 
-### Configuration Constants
-
-All magic numbers are extracted to the top for easy adjustment:
-
-```python
-# Camera Settings
-CAMERA_INDEX = 0
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
-FRAME_RATE = 30
-MAX_HANDS = 2
-
-# Detection Settings
-DETECTION_CONFIDENCE = 0.3
-TRACKING_CONFIDENCE = 0.3
-
-# Encoding Settings
-JPEG_QUALITY = 80
-
-# UI Settings
-BBOX_PADDING = 10
-BBOX_COLOR = (0, 255, 0)  # BGR format (Green)
-BBOX_THICKNESS = 2
-TEXT_THICKNESS = 3
-STATUS_TEXT_POSITION = (10, 30)
-STATUS_TEXT_FONT_SCALE = 0.7
-PREDICTION_TEXT_FONT_SCALE = 1.3
-TEXT_OFFSET_Y = 10
-```
-
-### FastAPI Lifespan Management
-
-The application uses modern FastAPI lifespan event handlers (replaces deprecated `@app.on_event`):
-
-```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Manage application startup and shutdown"""
-    # Startup: Initialize camera and start processing thread
-    initialize_camera()
-    capture_thread = threading.Thread(target=capture_frames, daemon=True)
-    capture_thread.start()
-    
-    yield  # Application runs here
-    
-    # Shutdown: Release resources
-    if camera_capture:
-        camera_capture.release()
-    if hand_detector:
-        hand_detector.close()
-
-app = FastAPI(title="ASL Detector", lifespan=lifespan)
-```
-
-### Core Functions
-
-#### 1. `initialize_camera()`
-**Purpose**: Set up webcam and hand detector at startup
-- Initializes OpenCV VideoCapture with camera index 0
-- Sets frame dimensions (640×480) and FPS (30)
-- Creates MediaPipe hand detector with confidence thresholds
-
-#### 2. `extract_and_normalize_landmarks(hand_landmarks)`
-**Purpose**: Extract and normalize hand landmark coordinates
-- Extracts all x and y coordinates from 21 landmarks
-- Normalizes coordinates relative to hand bounds
-- Returns 42-dimensional feature vector
-
-#### 3. `predict_gesture(hand_features)`
-**Purpose**: Predict ASL gesture from normalized features
-- Checks if model and encoder are loaded
-- Makes prediction and converts to character
-- Returns predicted character or None
-
-#### 4. `draw_hand_annotation(frame, gesture_label, x_coordinates, y_coordinates)`
-**Purpose**: Draw bounding box and gesture label on frame
-- Calculates bounding box in pixel coordinates
-- Draws green rectangle around hand
-- Draws gesture label text above
-
-#### 5. `detect_hand_gesture(frame)`
-**Purpose**: Main hand detection and gesture prediction pipeline
-- Converts frame BGR → RGB for MediaPipe
-- Detects hands and extracts landmarks
-- Normalizes features and makes predictions
-- Draws annotations and updates global predictions
-
-#### 6. `capture_frames()` (Background Thread)
-**Purpose**: Continuously capture and process frames
-- Reads frames at 30 FPS
-- Flips horizontally for mirror effect
-- Detects gestures and draws annotations
-- Stores frame safely using thread lock
-
-#### 7. `generate_frames()`
-**Purpose**: Generate MJPEG stream for browser display
-- Reads latest processed frame with thread lock
-- Encodes to JPEG (quality 80)
-- Yields as MJPEG chunks
-
-### API Endpoints
-
-| Endpoint | Method | Response | Purpose |
-|----------|--------|----------|---------|
-| `/` | GET | HTML file | Serves frontend webpage |
-| `/video_feed` | GET | MJPEG stream | Streams processed video |
-| `/latest_predictions` | GET | JSON | Returns latest detected gestures |
-
-### Global Variables
-
-```python
-model                      # Trained Random Forest classifier
-label_encoder             # Label encoder for character mapping
-camera_capture            # OpenCV VideoCapture
-hand_detector            # MediaPipe Hands detector
-frame_lock               # Threading lock for frame safety
-latest_processed_frame   # Current frame for streaming
-latest_detected_gestures # Current predictions
-```
-
-### Hand Landmark System
-
-**21 Landmarks per Hand**:
-```
-0: Wrist
-1-4: Thumb (metacarpal, proximal, intermediate, distal)
-5-8: Index finger
-9-12: Middle finger
-13-16: Ring finger
-17-20: Pinky finger
-```
-
-**Feature Vector**: 42-dimensional (21 landmarks × 2 coordinates)
-
-### Hand Landmark Coordinate System
-
-MediaPipe returns normalized coordinates:
-- **x**: Horizontal position (0 = left, 1 = right)
-- **y**: Vertical position (0 = top, 1 = bottom)
-- **z**: Depth estimate (relative to wrist)
-
-**Coordinate Transformation**:
-```python
-# Raw coordinates from MediaPipe
-x_raw = hand_landmarks.landmark[i].x  ∈ [0, 1]
-y_raw = hand_landmarks.landmark[i].y  ∈ [0, 1]
-
-# Normalization (relative to hand's bounding box)
-x_normalized = x_raw - min(x_all)     ∈ [0, hand_width]
-y_normalized = y_raw - min(y_all)     ∈ [0, hand_height]
-```
-
-### Feature Vector Structure
-
-**42-Dimensional Feature Vector**:
-```
-[x0_norm, y0_norm, x1_norm, y1_norm, ..., x20_norm, y20_norm]
-```
-
-Where:
-- Indices 0-20 represent the 21 hand landmarks
-- Each landmark contributes 2 dimensions (x, y normalized coordinates)
-
-### Model Prediction Process
-
-```python
-# Input: 42-dimensional feature vector
-feature_vector = np.array([features])  # Shape: (1, 42)
-
-# Prediction step
-prediction_class = model.predict(feature_vector)[0]  # Returns integer 0-28
-
-# Decode to character
-predicted_character = label_encoder.inverse_transform([prediction_class])[0]
-```
-
-### Processing Performance
-
-- **Frame Capture**: ~5ms per frame
-- **Hand Detection**: ~10-15ms per frame
-- **Feature Extraction**: ~2ms per hand
-- **Model Prediction**: ~1-2ms per hand
-- **GUI Rendering**: ~5-10ms per frame
-- **Total Latency**: ~25-30ms (consistent with 30ms refresh)
-- **FPS**: ~33 frames per second
-
-### Computer Vision Techniques Used
-
-1. **Color Space Conversion**: BGR → RGB standardization
-2. **Hand Landmark Detection**: MediaPipe's neural network (MobileNet-based)
-3. **Coordinate Normalization**: Invariant to scale/position
-4. **Feature Extraction**: Geometric hand landmarks
-5. **Classification**: Random Forest (ensemble learning)
-
-### Machine Learning Model Details
-
-**Random Forest Parameters**:
-- **Number of Trees**: 100 (default)
-- **Tree Depth**: Unlimited (full growth)
-- **Criterion**: Gini impurity
-- **Samples per Node**: Default (2 for leaves)
-- **Number of Classes**: 29
-
-**Why This Approach?**
-- Handles high-dimensional input (42 features) efficiently
-- Captures non-linear relationships in hand geometry
-- Fast inference suitable for real-time applications
-- Robust to variations in hand size/position due to normalization
+| Parameter | Specification | Notes |
+|---|---|---|
+| **Input Resolution** | 640 × 480 @ 30 FPS | Standard webcam format |
+| **Model Type** | Random Forest Classifier | `n_estimators=100`, scikit-learn |
+| **Model Size** | ~86.9 MB | Serialized in `model.pickle` |
+| **Feature Dimensions** | 42 | 21 landmarks × 2 coordinates ($\Delta x, \Delta y$) |
+| **Test Accuracy** | **~98.30%** | Evaluated on stratified 20% test partition |
+| **Inference Latency** | ~20–30 ms per frame | Real-time ~30–45 FPS on standard CPU |
+| **Hardware Required** | Standard x86_64 CPU | GPU not required |
 
 ---
 
-## Dependencies
+## Dependencies & Compatibility
 
-### Core Libraries
+### Pinned Dependencies (`requirements.txt`)
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| fastapi | Latest | Web framework for API endpoints |
-| uvicorn | Latest | ASGI server for FastAPI |
-| opencv-python | Latest | Video capture and image processing |
-| mediapipe | Latest | Hand landmark detection |
-| numpy | Latest | Numerical operations and arrays |
-| scikit-learn | Latest | Machine learning models |
-| joblib | Latest | Model serialization |
-| python-multipart | Latest | FastAPI file upload support |
-
-### Installation from requirements.txt
-
-```bash
-pip install -r requirements.txt
+```text
+opencv-python==4.11.0.86
+mediapipe==0.10.14
+numpy==1.26.4
+scikit-learn==1.4.1.post1
+joblib==1.6.0
 ```
 
-### requirements.txt Content
+### Compatibility Notes
 
-```
-fastapi==0.104.1
-uvicorn==0.24.0
-opencv-python==4.8.1.78
-mediapipe==0.10.8
-numpy==1.24.3
-scikit-learn==1.3.2
-joblib==1.3.2
-python-multipart==0.0.6
-Pillow==10.1.0
-```
+- **Python Version**: Recommended on **Python 3.10 / 3.11**.
+- **MediaPipe Version**: Must use `mediapipe<=0.10.14`. Versions $\ge$ 1.0.0 remove the `mp.solutions.hands` namespace in favor of the Tasks API.
+- **Scikit-Learn Version**: Pinned to `1.4.1.post1` to prevent unpickling warnings and serialization incompatibilities with `model.pickle`.
 
 ---
 
-## Performance Metrics
+## Troubleshooting
 
-### Accuracy Metrics
-
-| Metric | Value |
-|--------|-------|
-| Single Hand Average | 85-95% |
-| Two Hands Average | 80-90% per hand |
-| Best Case | 98%+ (clear, well-lit gestures) |
-| Worst Case | 70%+ (poor lighting, occluded) |
-
-### Speed Metrics
-
-| Operation | Time |
-|-----------|------|
-| Frame Capture | 5ms |
-| Hand Detection | 10-15ms |
-| Prediction | 1-2ms |
-| Total Pipeline | 25-30ms |
-| FPS | ~33 |
-| JPEG Encoding | 5ms |
-| Network Latency | 10-50ms (varies) |
-
-### Resource Usage
-
-| Resource | Usage |
-|----------|-------|
-| RAM | 200-300 MB |
-| CPU | 20-40% (single core) |
-| GPU | Optional (speeds up detection) |
-| Network | 30 KB/frame @ 33 FPS ≈ 1 Mbps |
-
-### Scalability
-
-- **Concurrent Users**: Can serve 5-10 simultaneous browser connections
-- **Single Instance**: Limited by single process/thread
-- **Scaling**: Deploy multiple instances with load balancer
+| Issue | Cause | Solution |
+|---|---|---|
+| `AttributeError: module 'mediapipe' has no attribute 'solutions'` | MediaPipe version is $\ge$ 1.0.0 or running under Python 3.13 where legacy solutions are unavailable. | Use a Python 3.11 environment and install `mediapipe==0.10.14`. |
+| `InconsistentVersionWarning` on unpickling | The installed `scikit-learn` version does not match the version used during training. | Install `scikit-learn==1.4.1.post1`. |
+| `[ERROR] Could not open webcam` | Webcam index is incorrect, camera is in use by another application, or camera permissions are missing. | Verify webcam permissions and verify device index in `cv2.VideoCapture(0)`. |
+| Predictions are inaccurate or jittery | Poor lighting, hand partially cut off, or motion blur. | Improve ambient lighting and hold gesture steady inside the frame. |
 
 ---
-
-**Last Updated**: February 22, 2026  
-**Version**: 2.0 (FastAPI Web-based)  
-**Technology Stack**: FastAPI + OpenCV + MediaPipe + scikit-learn  
-**License**: ASL Alphabet Dataset (GPL 2), Project MIT Licensed
