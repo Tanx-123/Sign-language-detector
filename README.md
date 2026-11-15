@@ -1,108 +1,122 @@
 # ASL Detector - Real-time American Sign Language Recognition
 
-A real-time American Sign Language (ASL) recognition application that uses computer vision and machine learning to detect and classify 28 ASL characters (A–Z, space, del) from live webcam input. The application uses MediaPipe Hands for robust hand landmark tracking, extracts normalized geometric features, and classifies gestures using a trained Random Forest classifier with native real-time OpenCV display.
+A lightweight, real-time sign language recognition tool built with Python, OpenCV, MediaPipe, and Scikit-Learn. It detects hand gestures from your webcam and translates them into 28 American Sign Language (ASL) characters (letters A–Z, space, and delete) at 30+ FPS right on your CPU — no expensive GPU required.
 
-## Key Features
+---
 
-- **Real-time ASL Detection**: Accurately recognizes 28 American Sign Language characters (A–Z, space, del).
-- **Multi-hand Support**: Detects and classifies up to 2 hands simultaneously in real time.
-- **MediaPipe Landmark Tracking**: Tracks 21 3D hand keypoints per hand for precise, jitter-free joint tracking.
-- **Position-Invariant Feature Extraction**: Normalizes landmark coordinates relative to bounding box minimums (42 features per hand) so signs are recognized anywhere in the camera view.
-- **Data-Leak-Free Training Pipeline**: Features are split into train and test sets *before* data augmentation, ensuring evaluation metrics are genuine and reliable.
-- **Warm-Start Training & Evaluation Visualizations**: Tracks training progress per decision tree, generating convergence curves for accuracy, multi-class log loss (`train_test_curves.png`), and a full confusion matrix (`confusion_matrix.png`).
-- **Random Forest Classifier**: High-performance, lightweight ensemble classifier (~98%+ test accuracy) enabling low-latency real-time inference without needing a GPU.
-- **Native OpenCV UI**: Direct low-latency camera capture and interactive display window with bounding box overlays and prediction labels.
+## What It Does
 
-## Prerequisites
+- **Recognizes 28 Signs**: Detects all 26 alphabet letters (`A` to `Z`) plus `space` and `del`.
+- **Works at Any Distance**: Landmarks are normalized for both position and distance so your hand is recognized whether you're close to the camera or sitting back.
+- **Up to 2 Hands**: Tracks and labels up to two hands at once in live video.
+- **Fast and Lightweight**: Runs on regular CPU hardware (~20–30 ms per frame) using a regularized Random Forest model (~98%+ accuracy).
+- **Clean OpenCV Window**: Overlays a clean bounding box, hand skeleton lines, and the detected letter directly on your webcam feed.
 
-- **Python**: Python 3.10 or 3.11 is recommended (MediaPipe `0.10.x` solutions support Python up to 3.11).
-- **Webcam**: A built-in or USB webcam.
+---
 
-## Installation
+## Quickstart
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/Tanx-123/Sign-language-detector.git
-   cd Sign-language-detector
-   ```
+### 1. Prerequisites
+- **Python 3.10 or 3.11** (MediaPipe 0.10.x works best on Python 3.11).
+- A standard webcam (built-in or USB).
 
-2. **Create and activate a virtual environment:**
-   Using standard `venv` (Python 3.10/3.11):
-   ```bash
-   python -m venv .venv
-   # Windows (Command Prompt / PowerShell)
-   .\.venv\Scripts\activate
-   # macOS / Linux
-   source .venv/bin/activate
-   ```
+### 2. Setup
 
-   *Alternatively, using `uv`:*
-   ```bash
-   uv venv .venv --python 3.11
-   .\.venv\Scripts\activate
-   ```
+Clone the repository and set up a virtual environment:
 
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+# Clone the repo
+git clone https://github.com/Tanx-123/Sign-language-detector.git
+cd Sign-language-detector
 
-## Usage
+# Create a virtual environment
+python -m venv .venv
 
-1. **Run the detector:**
-   ```bash
-   python app.py
-   ```
+# Activate it
+# On Windows:
+.\.venv\Scripts\activate
+# On macOS / Linux:
+source .venv/bin/activate
 
-2. **How to interact:**
-   - Position your hand(s) in front of the webcam.
-   - The green skeleton landmarks, bounding box, and predicted ASL character will overlay in real-time.
-   - Press **`q`** on your keyboard while focused on the OpenCV window to exit.
+# Install dependencies
+pip install -r requirements.txt
+```
 
-3. **Train or evaluate the model:**
-   - Open [`model.ipynb`](model.ipynb) in Jupyter Notebook or VS Code.
-   - Step through the cells to extract features, train the Random Forest with warm-start per-tree logging, plot accuracy/loss curves, and inspect the per-class confusion matrix.
+### 3. Run the App
+
+Start the live webcam detector:
+
+```bash
+python app.py
+```
+
+- Hold your hand up to the camera to see live predictions.
+- Press **`q`** on your keyboard to close the window.
+
+---
+
+## Training Your Own Model
+
+If you want to retrain the model or explore the training data:
+
+1. Download the [Kaggle ASL Alphabet Dataset](https://www.kaggle.com/datasets/grassknoted/asl-alphabet) and place the `asl_alphabet_train` folder in the project root.
+2. Open [`model.ipynb`](model.ipynb) in VS Code or Jupyter Notebook.
+3. Run all cells:
+   - Extracts 46 normalized landmark features per hand.
+   - Splits train and test data before augmenting with horizontal flips (avoids data leakage).
+   - Trains a regularized Random Forest with per-tree tracking.
+   - Generates [`train_test_curves.png`](train_test_curves.png) and a detailed [`confusion_matrix.png`](confusion_matrix.png).
+   - Saves the trained model to `model.pickle` and label mapping to `label_encoder.pickle`.
+
+---
+
+## How It Works
+
+```text
+Webcam Frame (640x480)
+       │
+       ▼
+Mirror Image & Color Convert (BGR ➔ RGB)
+       │
+       ▼
+MediaPipe Hands (21 Landmark Coordinates)
+       │
+       ▼
+46-Dimensional Feature Vector
+  ├── 42 coordinates (normalized for position & hand scale)
+  └── 4 thumb-to-knuckle distances (normalized by palm size)
+       │
+       ▼
+Random Forest Classifier ➔ Predicted Letter Displayed on Screen
+```
+
+---
 
 ## Project Structure
 
 ```text
 Sign-language-detector/
-├── app.py                 # Real-time detection & OpenCV inference script
-├── model.ipynb            # Dataset processing, feature extraction, training & evaluation pipeline
-├── model.pickle           # Serialized Random Forest classifier
-├── label_encoder.pickle   # Serialized LabelEncoder mapping integer predictions to letters
-├── train_test_curves.png  # Generated training/testing loss and accuracy convergence plot
-├── confusion_matrix.png   # Generated 28x28 confusion matrix heatmap
-├── requirements.txt       # Pinned library dependencies
-├── DOCUMENTATION.md       # Detailed technical documentation & pipeline overview
-└── README.md              # Project overview & quickstart guide
+├── app.py                 # Real-time webcam detector with OpenCV
+├── model.ipynb            # Feature extraction, training, and evaluation notebook
+├── model.pickle           # Saved Random Forest classifier
+├── label_encoder.pickle   # Label mapping (0-27 to letters A-Z, del, space)
+├── train_test_curves.png  # Accuracy and loss graphs across 100 trees
+├── confusion_matrix.png   # Full 28x28 confusion matrix plot
+├── requirements.txt       # Dependencies with pinned versions
+├── DOCUMENTATION.md       # In-depth technical documentation
+└── README.md              # Project overview and setup guide
 ```
 
-## How It Works
+---
 
-```
- Webcam Frame (640x480 BGR)
-         │
-         ▼
- Horizontal Flip (Selfie Mirror) & BGR ➔ RGB
-         │
-         ▼
- MediaPipe Hands (21 Landmarks per hand)
-         │
-         ▼
- Feature Normalization (Δx_i = x_i - min_x, Δy_i = y_i - min_y ➔ 42 features)
-         │
-         ▼
- Random Forest Model (.predict())
-         │
-         ▼
- Label Decoding (e.g., 0 ➔ 'A') & OpenCV Rendering (Bounding Box + Text)
-```
+## Tips for Best Detection
 
-## Sample Video
+- **Lighting**: Good, even lighting on your hand helps MediaPipe track your knuckles reliably.
+- **Background**: A clean or uncluttered background makes hand edge detection sharper.
+- **Hand Angle**: Keep your palm facing generally toward the camera, matching standard ASL chart poses.
 
-https://github.com/Tanx-123/Sign-language-detector/assets/75534311/a66155ce-d1d8-40a7-bf14-1577384785f4
+---
 
-## Documentation
+## More Details
 
-For a comprehensive technical breakdown including model training, architecture diagrams, mathematical formulations, and detailed viva Q&A, refer to [DOCUMENTATION.md](DOCUMENTATION.md).
+For complete technical details, mathematical formulas, training metrics, and troubleshooting steps, check out [DOCUMENTATION.md](DOCUMENTATION.md).

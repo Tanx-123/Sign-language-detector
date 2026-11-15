@@ -9,6 +9,7 @@ venv/
 ENV/
 env/
 
-# Data folders
+# Data folders and caches
 asl_alphabet_train/
 data/
+*.npz
