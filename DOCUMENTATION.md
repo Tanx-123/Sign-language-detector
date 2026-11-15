@@ -8,12 +8,13 @@
 4. [Project Structure](#project-structure)
 5. [Dataset Information](#dataset-information)
 6. [Model Training Pipeline (`model.ipynb`)](#model-training-pipeline-modelipynb)
-7. [Real-Time Inference (`app.py`)](#real-time-inference-apppy)
-8. [Hand Landmark & Feature Extraction Details](#hand-landmark--feature-extraction-details)
-9. [Usage Guide](#usage-guide)
-10. [Technical Specifications & Performance](#technical-specifications--performance)
-11. [Dependencies & Compatibility](#dependencies--compatibility)
-12. [Troubleshooting](#troubleshooting)
+7. [Evaluation & Diagnostics Suite](#evaluation--diagnostics-suite)
+8. [Real-Time Inference (`app.py`)](#real-time-inference-apppy)
+9. [Hand Landmark & Feature Extraction Details](#hand-landmark--feature-extraction-details)
+10. [Usage Guide](#usage-guide)
+11. [Technical Specifications & Performance](#technical-specifications--performance)
+12. [Dependencies & Compatibility](#dependencies--compatibility)
+13. [Troubleshooting & FAQ](#troubleshooting--faq)
 
 ---
 
@@ -26,9 +27,11 @@
 ### Key Features
 
 - **Real-time ASL Detection**: Recognizes **28 ASL classes** (Letters `A` through `Z`, plus `space` and `del`).
-- **Multi-hand Support**: Detects and classifies up to **2 hands** simultaneously.
+- **Multi-hand Support**: Detects and classifies up to **2 hands** simultaneously in real-time.
 - **Position-Invariant Landmark Normalization**: Computes coordinates relative to each hand's bounding box minimums ($\Delta x_i = x_i - \min(x)$, $\Delta y_i = y_i - \min(y)$) to yield a 42-dimensional feature vector.
-- **High Accuracy & Efficiency**: Delivers **~98.3% test accuracy** while running smoothly at 30+ FPS on CPU without requiring GPU acceleration.
+- **Leakage-Free Training Pipeline**: Splits data into train and test sets *prior* to augmentation so no reflected twins contaminate the evaluation.
+- **Comprehensive Diagnostic Visualizations**: Generates real-time training progress logs, convergence plots (`train_test_curves.png`), per-class precision/recall/F1 metrics, and a full confusion matrix (`confusion_matrix.png`).
+- **High Accuracy & Efficiency**: Delivers **~98%+ test accuracy** while running smoothly at 30+ FPS on CPU without requiring GPU acceleration.
 - **Native OpenCV Display**: Direct window rendering (`cv2.imshow`) with bounding boxes, real-time landmark overlays, and prediction labels.
 
 ### Target Use Cases
@@ -161,9 +164,11 @@ Press **`q`** on the keyboard while focused on the OpenCV window to cleanly clos
 ```
 Sign-language-detector/
 ├── app.py                 # Real-time detection & inference with native OpenCV UI
-├── model.ipynb            # Jupyter notebook for feature extraction and model training
+├── model.ipynb            # Jupyter notebook for feature extraction, training & evaluation
 ├── model.pickle           # Trained Random Forest classifier (~87 MB)
 ├── label_encoder.pickle   # LabelEncoder mapping integers to character labels
+├── train_test_curves.png  # Training vs. Testing loss & accuracy convergence plot
+├── confusion_matrix.png   # 28x28 confusion matrix heatmap
 ├── requirements.txt       # Pinned library dependencies
 ├── .gitignore             # Git ignore configuration (virtual envs, pycache, data)
 ├── README.md              # Project overview and quickstart guide
@@ -175,9 +180,11 @@ Sign-language-detector/
 | File | Type | Description |
 |---|---|---|
 | `app.py` | Python Script | Captures webcam feed, runs landmark detection via MediaPipe, extracts 42 normalized features, classifies gestures, and displays annotations. |
-| `model.ipynb` | Jupyter Notebook | Reads training images, performs horizontal flip data augmentation, runs MediaPipe feature extraction, trains Random Forest, and serializes the model. |
-| `model.pickle` | Serialized Model | Contains `{'model': RandomForestClassifier}` trained on 42-dimensional landmark coordinate vectors. |
+| `model.ipynb` | Jupyter Notebook | Reads training images, extracts landmark features, splits data before augmentation, trains Random Forest with warm-start checkpoints, plots metrics, and serializes the model. |
+| `model.pickle` | Serialized Model | Contains `{'model': RandomForestClassifier}` trained on 42-dimensional landmark coordinate vectors across 100 decision trees. |
 | `label_encoder.pickle` | Serialized Encoder | Maps discrete predictions (`0` to `27`) to ASL labels (`'A'` through `'Z'`, `'del'`, `'space'`). |
+| `train_test_curves.png` | Image Artifact | Plot showing Accuracy and Log Loss curves over the 100 decision trees. |
+| `confusion_matrix.png` | Image Artifact | Confusion matrix heatmap highlighting inter-class precision and recall. |
 | `requirements.txt` | Configuration | Pinned library versions for reproducible environments. |
 
 ---
@@ -192,65 +199,85 @@ The model is trained on the **ASL Alphabet Dataset**:
 - **Target Classes (28 Classes)**:
   - Alphabet: `A`, `B`, `C`, `D`, `E`, `F`, `G`, `H`, `I`, `J`, `K`, `L`, `M`, `N`, `O`, `P`, `Q`, `R`, `S`, `T`, `U`, `V`, `W`, `X`, `Y`, `Z`
   - Control Gestures: `del`, `space`
+  *(Note: The empty background `nothing` directory is excluded because it contains no hand landmarks).*
 
-### Dataset Sampling & Augmentation
+### Sampling & Leakage-Free Augmentation
 
-In `model.ipynb`:
-1. **Sampling**: Up to 1,000 images per class are sampled randomly to maintain balanced class representation across all 28 classes.
-2. **Horizontal Flipping**: Each training image is processed in its original orientation and then horizontally flipped (`cv2.flip(img, 1)`).
-3. **Robustness**: This mirrors hands left-to-right, effectively doubling the dataset and ensuring the model generalizes seamlessly to both left- and right-handed signers.
+1. **Sampling**: Up to 1,000 images per class are sampled from the dataset folders.
+2. **Feature Extraction**: Landmark features are extracted for original images only in Cell 2.
+3. **Split Before Augment**: In Cell 4, the dataset is divided into training (80%) and testing (20%) partitions *first*.
+4. **Training-Only Augmentation**: Only the training set (`x_train`) is augmented by reflecting the $x$-coordinates horizontally:
+   $$x_{\text{flipped}} = \max(x) - x$$
+   This doubles training data to teach the classifier both left-hand and right-hand orientations, while keeping `x_test` completely pristine and unaugmented.
 
 ---
 
 ## Model Training Pipeline (`model.ipynb`)
 
-The model training pipeline consists of 5 modular stages:
+The model training notebook consists of 8 organized cells:
 
-### Stage 1: MediaPipe Hands Initialization
+### Cell 1: Environment & Imports
+Imports core numerical, machine learning, and computer vision libraries (`os`, `cv2`, `numpy`, `sklearn`, `mediapipe`, `joblib`, `pickle`). Suppresses non-critical warnings.
+
+### Cell 2: Landmark Extraction
 ```python
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3)
+hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.3)
 ```
-- `static_image_mode=True` forces MediaPipe to treat each training image as an independent detection target rather than relying on temporal tracking.
+- Iterates over the 28 class folders.
+- Enforces `max_num_hands=1` and checks `len(raw_x) == 21` to ensure every sample produces strictly 42 features.
+- Normalizes coordinates relative to the minimum:
+  $$\Delta x_i = x_i - \min(x), \quad \Delta y_i = y_i - \min(y)$$
+- Logs progress per class as it executes.
 
-### Stage 2: Feature Extraction (`process_image`)
-For each image:
-1. MediaPipe detects up to 21 landmarks.
-2. The coordinate minimums `min(x_)` and `min(y_)` across all 21 points are calculated.
-3. Every landmark is normalized relative to the minimum:
-   $$\Delta x_i = x_i - \min(x)$$
-   $$\Delta y_i = y_i - \min(y)$$
-4. A 42-dimensional feature vector is created: `[Δx_0, Δy_0, Δx_1, Δy_1, ..., Δx_20, Δy_20]`.
-
-### Stage 3: Label Encoding
+### Cell 3: Label Encoding
 ```python
 label_encoder = LabelEncoder()
 labels = label_encoder.fit_transform(labels)
 joblib.dump(label_encoder, 'label_encoder.pickle')
 ```
-Converts string categories (`'A'`, `'B'`, ...) into continuous integers (`0`, `1`, ...).
+Encodes string categories (`'A'`, `'B'`, ...) into continuous integers (`0` to `27`) and serializes the encoder to disk.
 
-### Stage 4: Stratified Train-Test Split & Training
+### Cell 4: Train-Test Split & Warm-Start Training
 ```python
-x_train, x_test, y_train, y_test = train_test_split(
-    data, labels, test_size=0.2, shuffle=True, stratify=labels
-)
+# 1. Split FIRST
+x_train, x_test, y_train, y_test = train_test_split(data, labels, test_size=0.2, shuffle=True, stratify=labels)
 
-model = RandomForestClassifier(n_estimators=100)
-model.fit(x_train, y_train)
+# 2. Augment ONLY x_train
+# ... mathematical horizontal reflection ...
+
+# 3. Warm-start training over 100 trees with n_jobs=-1
+model = RandomForestClassifier(n_estimators=1, warm_start=True, random_state=42, n_jobs=-1)
 ```
-- **Stratification**: Guarantees identical class proportions in both training (80%) and testing (20%) sets.
-- **Random Forest**: Constructs an ensemble of 100 decision trees with bootstrap aggregation (bagging) and random feature selection.
+- Trains an ensemble of 100 decision trees incrementally (`warm_start=True`).
+- Evaluates Training & Testing Accuracy as well as Multi-Class Log Loss at checkpoints ($n = 1, 10, 20, \dots, 100$).
+- Derives predictions via `np.argmax(predict_proba)` to eliminate redundant inference passes.
 
-### Stage 5: Evaluation & Serialization
+---
+
+## Evaluation & Diagnostics Suite
+
+### Cell 5: Train & Test Curves (`train_test_curves.png`)
+Plots side-by-side diagnostic curves:
+1. **Accuracy Curve**: Tracks train and test accuracy convergence across tree count ($1 \rightarrow 100$).
+2. **Log Loss Curve**: Tracks multi-class cross-entropy loss reduction, verifying that the model is converging smoothly without overfitting.
+
+### Cell 6: Classification Report
 ```python
-y_predict = model.predict(x_test)
-score = accuracy_score(y_predict, y_test)
-# Achieves ~98.3% accuracy
-
-with open('model.pickle', 'wb') as f:
-    pickle.dump({'model': model}, f)
+all_classes = range(len(label_encoder.classes_))
+print(classification_report(y_test, y_predict, labels=all_classes, target_names=label_encoder.classes_, zero_division=0))
 ```
+Generates a full statistical breakdown including:
+- **Precision**: Ratio of correct predictions per class.
+- **Recall**: Percentage of actual class instances captured.
+- **F1-Score**: Harmonic mean of precision and recall.
+- **Macro / Weighted Averages**: Overall generalization metrics across all 28 classes.
+
+### Cell 7: Confusion Matrix Heatmap (`confusion_matrix.png`)
+Computes the 28×28 confusion matrix and renders an annotated heatmap via `ConfusionMatrixDisplay`, clearly exposing any subtle confusions between visually similar signs (e.g., `M` vs. `N` or `U` vs. `V`).
+
+### Cell 8: Model Serialization
+Serializes the finalized 100-tree Random Forest classifier to `model.pickle`.
 
 ---
 
@@ -278,27 +305,22 @@ def main():
     ...
 ```
 
-### Key Differences in Real-Time Inference
+### Key Highlights of Real-Time Mode:
 
 1. **`static_image_mode=False`**:
-   - In video mode, MediaPipe applies the palm detector only on the first frame or when tracking fails.
-   - For consecutive frames, it uses a fast landmark tracking model, reducing latency to ~10–15ms per frame.
-2. **Horizontal Mirroring (`cv2.flip(frame, 1)`)**:
-   - Provides a natural selfie mirror experience for the user.
-3. **Bounding Box Calculation**:
-   - Converts normalized landmark extremes into frame pixel coordinates:
-     $$x_1 = \max(0, \lfloor\min(x) \times W\rfloor - 10)$$
-     $$y_1 = \max(0, \lfloor\min(y) \times H\rfloor - 10)$$
-     $$x_2 = \min(W, \lceil\max(x) \times W\rceil + 10)$$
-     $$y_2 = \min(H, \lceil\max(y) \times H\rceil + 10)$$
+   Uses the palm detector on initial frames and switches to high-speed landmark tracking on subsequent frames, reducing latency to ~10–15ms per frame.
+2. **Multi-Hand Support**:
+   Iterates through each hand detected in `results.multi_hand_landmarks`, extracting 42 features and drawing individual bounding boxes and labels for up to 2 hands at once.
+3. **Selfie Mirroring (`cv2.flip(frame, 1)`)**:
+   Flips the camera horizontally for a natural mirror-like interaction.
 4. **Interactive Exit**:
-   - Checks `cv2.waitKey(1) & 0xFF == ord('q')` to cleanly release the webcam and destroy all OpenCV windows.
+   Pressing **`q`** cleanly releases the webcam hardware and closes all OpenCV GUI windows.
 
 ---
 
 ## Hand Landmark & Feature Extraction Details
 
-### 21 Hand Landmarks Map
+### 21 Hand Landmarks Topology
 
 ```
           8 (INDEX_TIP)    12 (MIDDLE_TIP)   16 (RING_TIP)    20 (PINKY_TIP)
@@ -328,8 +350,8 @@ $$\{(x_i, y_i)\}_{i=0}^{20}$$
    $$\mathbf{v} = [x_0 - x_{\min}, \, y_0 - y_{\min}, \, x_1 - x_{\min}, \, y_1 - y_{\min}, \, \dots, \, x_{20} - x_{\min}, \, y_{20} - y_{\min}]$$
 
 **Why this is effective:**
-- **Translation Invariance**: The hand can be anywhere in the webcam's field of view without changing the feature vector.
-- **Dimensional Simplicity**: 42 continuous floating-point features can be evaluated by a Random Forest in less than 2 milliseconds.
+- **Translation Invariance**: The hand can be anywhere in the camera view without altering the relative feature coordinates.
+- **Low Compute Overhead**: A 42-element vector evaluates in under 2 milliseconds on standard CPU hardware.
 
 ---
 
@@ -347,10 +369,10 @@ $$\{(x_i, y_i)\}_{i=0}^{20}$$
 | Parameter | Specification | Notes |
 |---|---|---|
 | **Input Resolution** | 640 × 480 @ 30 FPS | Standard webcam format |
-| **Model Type** | Random Forest Classifier | `n_estimators=100`, scikit-learn |
+| **Model Type** | Random Forest Classifier | `n_estimators=100`, `n_jobs=-1`, scikit-learn |
 | **Model Size** | ~86.9 MB | Serialized in `model.pickle` |
 | **Feature Dimensions** | 42 | 21 landmarks × 2 coordinates ($\Delta x, \Delta y$) |
-| **Test Accuracy** | **~98.30%** | Evaluated on stratified 20% test partition |
+| **Test Accuracy** | **~98%+** | Evaluated on pure, unaugmented 20% test partition |
 | **Inference Latency** | ~20–30 ms per frame | Real-time ~30–45 FPS on standard CPU |
 | **Hardware Required** | Standard x86_64 CPU | GPU not required |
 
@@ -376,13 +398,17 @@ joblib==1.6.0
 
 ---
 
-## Troubleshooting
+## Troubleshooting & FAQ
 
 | Issue | Cause | Solution |
 |---|---|---|
 | `AttributeError: module 'mediapipe' has no attribute 'solutions'` | MediaPipe version is $\ge$ 1.0.0 or running under Python 3.13 where legacy solutions are unavailable. | Use a Python 3.11 environment and install `mediapipe==0.10.14`. |
 | `InconsistentVersionWarning` on unpickling | The installed `scikit-learn` version does not match the version used during training. | Install `scikit-learn==1.4.1.post1`. |
+| `ValueError: inhomogeneous shape` | An image had multiple hands detected, causing an irregular array length. | Enforced `max_num_hands=1` in Cell 2 to guarantee exactly 42 floats per sample. |
 | `[ERROR] Could not open webcam` | Webcam index is incorrect, camera is in use by another application, or camera permissions are missing. | Verify webcam permissions and verify device index in `cv2.VideoCapture(0)`. |
 | Predictions are inaccurate or jittery | Poor lighting, hand partially cut off, or motion blur. | Improve ambient lighting and hold gesture steady inside the frame. |
 
 ---
+
+**Last Updated**: November 2026  
+**License**: MIT / ASL Alphabet Dataset (GPL 2)
